@@ -104,6 +104,21 @@ public class UdpSocket {
         key = channel.register(selector, interestSets, this);
     }
 
+    void detachFromSelector() {
+        if (key != null) {
+            key.cancel();
+            key = null;
+        }
+    }
+
+    boolean isChannelOpen() {
+        return channel.isOpen();
+    }
+
+    boolean hasPendingSend() {
+        return sendPackets.peek() != null;
+    }
+
     void setProperties(JSObject properties) throws JSONException, SocketException {
         if (!properties.isNull("name")) name = properties.getString("name");
 

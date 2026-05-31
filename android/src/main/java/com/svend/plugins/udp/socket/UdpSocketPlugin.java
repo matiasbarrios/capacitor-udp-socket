@@ -440,6 +440,8 @@ public class UdpSocketPlugin extends Plugin {
                 throw new RuntimeException(e);
             }
 
+            reregisterOpenSockets();
+
             // process possible messages that send during openning the selector
             // before select.
             processPendingMessages();
@@ -475,6 +477,31 @@ public class UdpSocketPlugin extends Plugin {
                 } // while next
 
                 processPendingMessages();
+            }
+
+            for (UdpSocket socket : sockets.values()) {
+                socket.detachFromSelector();
+            }
+            try {
+                if (selector != null) {
+                    selector.close();
+                }
+            } catch (IOException ignored) {}
+            selector = null;
+        }
+
+        private void reregisterOpenSockets() {
+            for (UdpSocket socket : sockets.values()) {
+                if (!socket.isBound || !socket.isChannelOpen()) {
+                    continue;
+                }
+                try {
+                    int interest = SelectionKey.OP_READ;
+                    if (socket.hasPendingSend()) {
+                        interest |= SelectionKey.OP_WRITE;
+                    }
+                    socket.register(selector, interest);
+                } catch (IOException ignored) {}
             }
         }
     }
