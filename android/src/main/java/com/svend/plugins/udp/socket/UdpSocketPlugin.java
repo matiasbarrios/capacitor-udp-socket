@@ -155,15 +155,31 @@ public class UdpSocketPlugin extends Plugin {
             int socketId = call.getInt("socketId");
             String address = call.getString("address");
             int port = call.getInt("port");
-            String bufferString = call.getString("buffer");
-            byte[] data = Base64.decode(bufferString, Base64.DEFAULT);
+            byte[] data = decodeSendBuffer(call);
             UdpSocket socket = obtainSocket(socketId);
             if (!socket.isBound) throw new Exception("Not bound yet");
-            socket.addSendPacket(address, port, data, call);
+            socket.addSendPacket(address, port, data, null);
             addSelectorMessage(socket, SelectorMessageType.SO_ADD_WRITE_INTEREST, null);
+            JSObject ret = new JSObject();
+            ret.put("bytesSent", data.length);
+            call.resolve(ret);
         } catch (Exception e) {
             call.reject(e.getMessage());
         }
+    }
+
+    private byte[] decodeSendBuffer(PluginCall call) throws Exception {
+        JSArray bytesArray = call.getArray("bytes");
+        if (bytesArray != null && bytesArray.length() > 0) {
+            byte[] data = new byte[bytesArray.length()];
+            for (int i = 0; i < bytesArray.length(); i++) {
+                data[i] = (byte) (bytesArray.getInt(i) & 0xff);
+            }
+            return data;
+        }
+        String bufferString = call.getString("buffer");
+        if (bufferString == null) throw new Exception("Missing buffer or bytes");
+        return Base64.decode(bufferString, Base64.DEFAULT);
     }
 
     @PluginMethod
@@ -326,8 +342,11 @@ public class UdpSocketPlugin extends Plugin {
                 ret.put("remoteAddress", address);
             }
             ret.put("remotePort", port);
-            String bufferString = new String(Base64.encode(data, Base64.DEFAULT));
-            ret.put("buffer", bufferString);
+            JSArray bytesArray = new JSArray();
+            for (byte b : data) {
+                bytesArray.put(b & 0xff);
+            }
+            ret.put("bytes", bytesArray);
             notifyListeners("receive", ret, false);
         } catch (Exception ignored) {}
     }

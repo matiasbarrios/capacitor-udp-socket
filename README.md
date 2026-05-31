@@ -427,12 +427,13 @@ Result of sending data
 
 Parameters for sending data
 
-| Prop           | Type                | Description                     |
-| -------------- | ------------------- | ------------------------------- |
-| **`socketId`** | <code>number</code> | The id of the socket            |
-| **`address`**  | <code>string</code> | The address of the remote host. |
-| **`port`**     | <code>number</code> | The port of the remote host.    |
-| **`buffer`**   | <code>string</code> | The data to send.               |
+| Prop           | Type                  | Description                                                                |
+| -------------- | --------------------- | -------------------------------------------------------------------------- |
+| **`socketId`** | <code>number</code>   | The id of the socket                                                       |
+| **`address`**  | <code>string</code>   | The address of the remote host.                                            |
+| **`port`**     | <code>number</code>   | The port of the remote host.                                               |
+| **`buffer`**   | <code>string</code>   | The data to send (base64). Prefer `bytes` when calling from JavaScript.    |
+| **`bytes`**    | <code>number[]</code> | Raw payload as unsigned byte values (0–255). Avoids base64 on the JS side. |
 
 
 #### CloseOptions

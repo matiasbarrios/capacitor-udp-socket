@@ -4,6 +4,8 @@ import CocoaAsyncSocket
 typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
 
 @objc public class UdpSocket: NSObject {
+    private static let delegateQueue = DispatchQueue(label: "com.magicalmixing.capacitor-udp-socket", qos: .userInitiated)
+
     let socketId: Int
 
     var name: String
@@ -29,7 +31,7 @@ typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
 
         super.init()
 
-        self.socket = GCDAsyncUdpSocket.init(delegate: self, delegateQueue: DispatchQueue.main)
+        self.socket = GCDAsyncUdpSocket.init(delegate: self, delegateQueue: UdpSocket.delegateQueue)
         self.socket?.setIPv4Enabled(true)
         self.socket?.setIPv6Enabled(false) //Disable ipv6 to prevent IPv4-only calls failing
 
@@ -167,7 +169,7 @@ extension UdpSocket: GCDAsyncUdpSocketDelegate {
         ret["socketId"] = self.socketId
         ret["remoteAddress"] = GCDAsyncUdpSocket.host(fromAddress: address)
         ret["remotePort"] = GCDAsyncUdpSocket.port(fromAddress: address)
-        ret["buffer"] = data.base64EncodedString()
+        ret["bytes"] = data.map { Int($0) }
 
         onReceivedHandler?(ret)
     }

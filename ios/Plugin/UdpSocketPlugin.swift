@@ -25,11 +25,15 @@ public class UdpSocketPlugin: CAPPlugin {
         let socket = UdpSocket.init(id: nextSocketId, properties: properties)
         sockets[socket.socketId] = socket
         socket.onReceivedHandler = { data in
-            self.notifyListeners("receive", data: data, retainUntilConsumed: false)
+            DispatchQueue.main.async {
+                self.notifyListeners("receive", data: data, retainUntilConsumed: false)
+            }
         }
 
         socket.onReceivedErrorHandler = { data in
-            self.notifyListeners("receiveError", data: data, retainUntilConsumed: false)
+            DispatchQueue.main.async {
+                self.notifyListeners("receiveError", data: data, retainUntilConsumed: false)
+            }
         }
 
         nextSocketId+=1
@@ -93,10 +97,9 @@ public class UdpSocketPlugin: CAPPlugin {
         }
 
         let address = call.getString("address", "")
-        let dataString = call.getString("buffer", "")
 
         do {
-            let data = Data(base64Encoded: dataString, options: .ignoreUnknownCharacters) ?? Data.init()
+            let data = try decodeSendBuffer(call)
             try socket.send(data, address: address, port: port)
             call.resolve(["bytesSent": data.count])
         } catch let SocketsError.Error(msg) {
@@ -104,6 +107,27 @@ public class UdpSocketPlugin: CAPPlugin {
         } catch {
             call.reject("unkow error")
         }
+    }
+
+    private func decodeSendBuffer(_ call: CAPPluginCall) throws -> Data {
+        if let bytes = call.getArray("bytes") as? [JSValue], !bytes.isEmpty {
+            var data = Data(capacity: bytes.count)
+            for value in bytes {
+                if let n = value as? Int {
+                    data.append(UInt8(truncatingIfNeeded: n))
+                } else if let n = value as? NSNumber {
+                    data.append(UInt8(truncatingIfNeeded: n.intValue))
+                }
+            }
+            if !data.isEmpty {
+                return data
+            }
+        }
+        let dataString = call.getString("buffer", "")
+        if let data = Data(base64Encoded: dataString, options: .ignoreUnknownCharacters), !data.isEmpty {
+            return data
+        }
+        throw SocketsError.Error("Missing buffer or bytes")
     }
 
     @objc func close(_ call: CAPPluginCall) {

@@ -277,9 +277,13 @@ export interface SendOptions {
    */
   port: number;
   /**
-   * The data to send.
+   * The data to send (base64). Prefer `bytes` when calling from JavaScript.
    */
-  buffer: string;
+  buffer?: string;
+  /**
+   * Raw payload as unsigned byte values (0–255). Avoids base64 on the JS side.
+   */
+  bytes?: number[];
 }
 
 /**
@@ -462,7 +466,11 @@ export interface ReceiveEvent {
    */
   socketId: number;
   /**
-   * The data received.
+   * Raw payload as unsigned byte values (0–255).
+   */
+  bytes?: number[];
+  /**
+   * The data received (base64). Deprecated — use `bytes`.
    */
   buffer?: string;
   /**
