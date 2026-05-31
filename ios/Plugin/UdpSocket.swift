@@ -15,6 +15,7 @@ typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
 
     var broadcastEnabled: Bool
     var isBound: Bool
+    var boundInterfaceName: String?
     var multicastGroup: Set<String>
 
     var onReceivedHandler: onReceivedHandlerHandler?
@@ -95,6 +96,13 @@ typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
 
         try socket?.bind(toPort: UInt16(port), interface: addr )
 
+        if let addr = addr, !addr.isEmpty, addr != "0.0.0.0" {
+            boundInterfaceName = Utils.interfaceName(forIPv4: addr)
+        }
+        if boundInterfaceName == nil {
+            boundInterfaceName = Utils.getPreferredInterfaceName()
+        }
+
         if !paused {
             try socket?.beginReceiving()
         }
@@ -117,10 +125,17 @@ typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
             throw SocketsError.Error("Broadcast not allowed")
         }
 
-        if address.contains(":") && !address.contains("%") {
-            address = address + "%en0"
-        }
         socket?.send(data, toHost: address, port: UInt16(port), withTimeout: -1, tag: -1)
+    }
+
+    private func multicastInterfaceName() throws -> String {
+        if let boundInterfaceName = boundInterfaceName {
+            return boundInterfaceName
+        }
+        if let preferred = Utils.getPreferredInterfaceName() {
+            return preferred
+        }
+        throw SocketsError.Error("No network interface available")
     }
 
     public func setBroadcast(_ enabled: Bool) throws {
@@ -133,7 +148,8 @@ typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
             throw SocketsError.Error("Already bound")
         }
         do {
-            try socket?.joinMulticastGroup(address, onInterface: "en0")
+            let interface = try multicastInterfaceName()
+            try socket?.joinMulticastGroup(address, onInterface: interface)
             multicastGroup.insert(address)
         } catch {
             throw SocketsError.Error("joinGroup error")
@@ -145,7 +161,8 @@ typealias onReceivedHandlerHandler = (_ data: [String: Any]) -> Void
             return
         }
         do {
-            try socket?.leaveMulticastGroup(address, onInterface: "en0")
+            let interface = try multicastInterfaceName()
+            try socket?.leaveMulticastGroup(address, onInterface: interface)
             multicastGroup.remove(address )
         } catch {
             throw SocketsError.Error("joinGroup error")

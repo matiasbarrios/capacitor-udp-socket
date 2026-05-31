@@ -10,72 +10,121 @@ import Foundation
 
 public class Utils {
 
-    static func getIPv6Address() -> String? {
-        var address: String?
+    private struct IPv4Interface {
+        let name: String
+        let address: String
+        let prefixLength: Int
+        let isLoopback: Bool
+    }
 
-        // Get list of all interfaces on the local machine:
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0 else { return nil }
-        guard let firstAddr = ifaddr else { return nil }
+    private static func isExcludedInterface(_ name: String) -> Bool {
+        name.hasPrefix("awdl") || name.hasPrefix("llw")
+    }
 
-        // For each interface ...
-        for ifptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
-            let interface = ifptr.pointee
-
-            // Check for IPv4 or IPv6 interface:
-            let addrFamily = interface.ifa_addr.pointee.sa_family
-            if addrFamily == UInt8(AF_INET6) {
-
-                // Check interface name:
-                let name = String(cString: interface.ifa_name)
-                if  name == "en0" {
-                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
-                                &hostname, socklen_t(hostname.count),
-                                nil, socklen_t(0), NI_NUMERICHOST)
-                    address = String(cString: hostname)
-                }
-            }
+    private static func interfacePriority(_ name: String) -> Int {
+        if name.hasPrefix("en"), let index = Int(name.dropFirst(2)) {
+            return index
         }
-        freeifaddrs(ifaddr)
-        if address != nil {
-            let index = address!.firstIndex(of: "%") ?? address?.endIndex
-            let beginning = address![..<index!]
-            let shortAddress = String(beginning)
-            return shortAddress
+        if name.hasPrefix("utun"), let index = Int(name.dropFirst(4)) {
+            return 50 + index
+        }
+        if name.hasPrefix("ppp"), let index = Int(name.dropFirst(3)) {
+            return 50 + index
+        }
+        return 100
+    }
 
-        } else {
+    private static func hostname(from addr: UnsafePointer<sockaddr>, len: socklen_t) -> String? {
+        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        guard getnameinfo(addr, len, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else {
             return nil
         }
+        return String(cString: host)
+    }
+
+    private static func prefixLength(family: sa_family_t, netmask: UnsafePointer<sockaddr>?) -> Int {
+        guard family == UInt8(AF_INET), let netmask = netmask else { return 0 }
+        let mask = netmask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+        let bytes = withUnsafeBytes(of: mask.s_addr.bigEndian) { Array($0) }
+        var bits = 0
+        for byte in bytes {
+            if byte == 0xff {
+                bits += 8
+            } else if byte == 0 {
+                break
+            } else {
+                var value = byte
+                while value & 0x80 != 0 {
+                    bits += 1
+                    value <<= 1
+                }
+                break
+            }
+        }
+        return bits
+    }
+
+    private static func listIPv4Interfaces() -> [IPv4Interface] {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return [] }
+        defer { freeifaddrs(ifaddr) }
+
+        var results: [IPv4Interface] = []
+        for ifptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
+            let interface = ifptr.pointee
+            guard let addr = interface.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            guard let address = hostname(from: addr, len: socklen_t(addr.pointee.sa_len)) else { continue }
+
+            let name = String(cString: interface.ifa_name)
+            let isLoopback = (interface.ifa_flags & UInt32(IFF_LOOPBACK)) != 0
+            let prefix = prefixLength(family: addr.pointee.sa_family, netmask: interface.ifa_netmask)
+            results.append(IPv4Interface(name: name, address: address, prefixLength: prefix, isLoopback: isLoopback))
+        }
+        return results
+    }
+
+    private static func pickBestIPv4Interface(_ interfaces: [IPv4Interface]) -> IPv4Interface? {
+        interfaces
+            .filter { !$0.isLoopback && !isExcludedInterface($0.name) && $0.prefixLength > 0 }
+            .sorted { left, right in
+                if left.prefixLength != right.prefixLength {
+                    return left.prefixLength > right.prefixLength
+                }
+                return interfacePriority(left.name) < interfacePriority(right.name)
+            }
+            .first
+    }
+
+    static func getPreferredInterfaceName() -> String? {
+        pickBestIPv4Interface(listIPv4Interfaces())?.name
+    }
+
+    static func interfaceName(forIPv4 address: String) -> String? {
+        listIPv4Interfaces().first { $0.address == address }?.name
     }
 
     static func getIPv4Address() -> String? {
-        var address: String?
-        // Get list of all interfaces on the local machine:
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0 else { return nil }
-        guard let firstAddr = ifaddr else { return nil }
+        pickBestIPv4Interface(listIPv4Interfaces())?.address
+    }
 
-        // For each interface ...
+    static func getIPv6Address() -> String? {
+        guard let preferredName = getPreferredInterfaceName() else { return nil }
+
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
+        defer { freeifaddrs(ifaddr) }
+
         for ifptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
             let interface = ifptr.pointee
-
-            // Check for IPv4 or IPv6 interface:
-            let addrFamily = interface.ifa_addr.pointee.sa_family
-            if addrFamily == UInt8(AF_INET) {
-
-                // Check interface name:
-                let name = String(cString: interface.ifa_name)
-                if  name == "en0" {
-                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
-                                &hostname, socklen_t(hostname.count),
-                                nil, socklen_t(0), NI_NUMERICHOST)
-                    address = String(cString: hostname)
-                }
+            let name = String(cString: interface.ifa_name)
+            guard name == preferredName else { continue }
+            guard let addr = interface.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET6) else { continue }
+            guard var host = hostname(from: addr, len: socklen_t(addr.pointee.sa_len)) else { continue }
+            if let scopeIndex = host.firstIndex(of: "%") {
+                host = String(host[..<scopeIndex])
             }
+            return host
         }
-        freeifaddrs(ifaddr)
-        return address
+        return nil
     }
 }
