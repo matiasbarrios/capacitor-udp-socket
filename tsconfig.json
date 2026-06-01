@@ -13,8 +13,10 @@
     "outDir": "dist/esm",
     "pretty": true,
     "sourceMap": true,
+    "skipLibCheck": true,
     "strict": true,
-    "target": "es2017"
+    "target": "es2017",
+    "typeRoots": ["./node_modules/@types"]
   },
   "files": ["src/index.ts"]
 }
